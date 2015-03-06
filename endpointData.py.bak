@@ -1,0 +1,192 @@
+#!/bin/py
+
+#useStartFile = True
+
+
+
+import os,ROOT
+import sys
+ROOT.gROOT.LoadMacro("include/ToyMCSamplerHist.h+")
+ROOT.gROOT.LoadMacro("include/EndpointDataBalance.h+")
+ROOT.gROOT.LoadMacro("include/EndpointMCScan.h+")
+
+from ROOT import *
+from python.ufPlotTools import *
+from python.Utils import *
+from python.TreeController import TreeBreakController
+
+setTDRStyle()
+can = TCanvas("can","can",600,600)
+
+sdatafile = "endpoint_dimu_3908"
+
+infiledata 	= TFile("root/"+sdatafile+".root","open")
+#infilemc 	= TFile("root/endpointFormat/efRaw_dy0020.root","open")
+infilemc 	= TFile("root/efRaw.root","open")
+
+
+#
+# constants
+#
+nbinseta = 5
+nbinsphi = 1 
+ptmin = 200
+ptmin = 100
+ptmin = 45
+ptmin = 50
+etacut = 2.1
+
+stree = "muonsFsr" 
+stree = "muonsReco" 
+stree = "muonsTrue" 
+#outfile		= TFile("test.root","recreate")
+
+#outfile		= TFile("out/endpointData_%s_ptmin%03d_eta%2.0f.root"%(stree,ptmin,etacut*10),"recreate")
+outfile		= TFile('gwar.root',"recreate")
+#
+#
+#
+treedata = infiledata.muonsTrk
+
+treedata.Draw("trk1.k")
+
+hbinsEta = TH1F("hBinsEta","#eta bins; #eta", nbinseta, -etacut,etacut);
+hbinsPhi = TH1F("hBinsPhi","#phi bins; #phi", nbinsphi, -TMath.Pi(),TMath.Pi());
+
+
+tbc=TreeBreakController(treedata)
+tbc.initEtaPhiLists(hbinsEta,hbinsPhi)
+tbc.fillEtaTrees()
+	
+#etatreesdata = [treedata] 
+etatreesdata = tbc.etatrees
+
+#
+# write out initial stuff
+#
+#for it,t in enumerate(tbc.etatrees): 
+#	print t.GetEntries()
+#	if True: t.Write("treeEta%d"%it)
+
+hbinsEta.Write()
+hbinsPhi.Write()
+
+edb = EndpointDataBalance("derp",11, ptmin,400,1.)
+
+greEta = TGraphErrors()
+graEta = TGraphAsymmErrors()
+
+print 'running the eta loop on the endpoint bootstrap method'
+for it,t in enumerate(etatreesdata): 
+	print it,t.GetEntries()
+		
+	edb.reset()
+	edb.runEndpointLoop(t)
+	edb.runChisquareFit()
+	edb.getChi2().Write("edb_eta_%03d"%it)
+	vep1, eep1, eminos = getEndpoint(edb.getChi2(),-1,1)
+	if it>0:
+		ec =hbinsEta.GetBinCenter(it)
+		ew =hbinsEta.GetBinWidth(it)
+		ipoint = greEta.GetN()
+		greEta.SetPoint(ipoint,ec,vep1)
+		greEta.SetPointError(ipoint,0.5*ew,eep1)
+
+		graEta.SetPoint(ipoint,ec,vep1)
+		graEta.SetPointError(ipoint,0.5*ew,0.5*ew,eminos[0],eminos[1])
+greEta.SetTitle(";#eta;#kappa [c/TeV]")
+graEta.SetTitle(";#eta;#kappa [c/TeV]")
+greEta.Draw("ape")
+graEta.Draw("ape")
+can.Update()
+greEta.Write("gre_edb_parab_eta")
+graEta.Write("gre_edb_minos_eta")
+
+treemc = infilemc.muonsFsr
+treemc = infilemc.muonsTrue
+treemc = infilemc.Get(stree)
+emcs = EndpointMCScan("duck",20, ptmin, 200, 1);
+tbcmc = TreeBreakController(treemc)
+tbcmc.initEtaPhiLists(hbinsEta,hbinsPhi)
+tbcmc.fillEtaTrees()
+
+
+
+greEtaMCS = TGraphErrors()
+graEtaMCS = TGraphAsymmErrors()
+#for ifit,(tdata,tmc) in zip(tbc.etatrees,tbcmc.etatrees):
+for ifit in range(0,len(tbc.etatrees)):
+	td = tbc.etatrees[ifit]
+	tmc = tbcmc.etatrees[ifit]
+	emcs.reset()
+	emcs.fillData(td);
+	emcs.appendMCWeighted(tmc)
+
+	emcs.runChisquareFit()
+	emcs.runChisquareFitPosNeg()
+	emcs.getChi2Sum().Write("emcs_chi2sum_%d"%ifit)
+	emcs.getChi2().Write("emcs_chi2_%d"%ifit)
+	emcs.getChi2Pos().Write("emcs_chi2pos_%d"%ifit)
+	emcs.getChi2Neg().Write("emcs_chi2neg_%d"%ifit)
+	vep, eep, eminos = getEndpoint(emcs.getChi2(),-1,1)
+	if ifit>0:
+		ec =hbinsEta.GetBinCenter(ifit)
+		ew =hbinsEta.GetBinWidth(ifit)
+		ipoint = greEtaMCS.GetN()
+		greEtaMCS.SetPoint(ipoint,ec,vep)
+		greEtaMCS.SetPointError(ipoint,0.5*ew,eep)
+
+		graEtaMCS.SetPoint(ipoint,ec,vep)
+		graEtaMCS.SetPointError(ipoint,0.5*ew,0.5*ew,eminos[0],eminos[1])
+	
+greEtaMCS.SetTitle(";#eta;#kappa [c/TeV]")
+graEtaMCS.SetTitle(";#eta;#kappa [c/TeV]")
+greEtaMCS.Write("gre_emcs_parab_eta")
+graEtaMCS.Write("gre_emcs_minos_eta")
+'''
+emcs.fillData(treedata);
+emcs.appendMCWeighted(treemc)
+ifit = 0
+emcs.runChisquareFit()
+emcs.runChisquareFitPosNeg()
+emcs.getChi2Sum().Write("emcs_chi2sum_%d")
+emcs.getChi2().Write("emcs_chi2_%d")
+emcs.getChi2Pos().Write("emcs_chi2pos_%d")
+emcs.getChi2Neg().Write("emcs_chi2neg_%d")
+'''
+
+'''
+emcs.getChi2Sum().Draw()
+emcs.getChi2().Draw()
+emcs.getChi2Pos().Draw("same")
+emcs.getChi2Neg().Draw("same")
+'''
+
+
+'''
+infilemc1 	= TFile("root/endpointFormat/efRaw_dy0020.root","open")
+infilemc2 	= TFile("root/endpointFormat/efRaw_dy0120.root","open")
+infilemc3 	= TFile("root/endpointFormat/efRaw_dy0200.root","open")
+infilemc4 	= TFile("root/endpointFormat/efRaw_dy0500.root","open")
+infilemc5 	= TFile("root/endpointFormat/efRaw_dy0800.root","open")
+
+tbcs_mc = []
+stree = "muonsTrue"
+tbcs_mc.append(TreeBreakController(infilemc1.Get(stree))
+tbcs_mc.append(TreeBreakController(infilemc2.Get(stree))
+tbcs_mc.append(TreeBreakController(infilemc3.Get(stree))
+tbcs_mc.append(TreeBreakController(infilemc4.Get(stree))
+tbcs_mc.append(TreeBreakController(infilemc5.Get(stree))
+
+emcs = EndpointMCScan("duck",20, ptmin, 200, 1);
+
+#emcs.fillData(treedata);
+#emcs.appendMCWeighted(treemc)
+
+etatreesmc = [infilemc1.Get(stree),infilemc2.Get(stree),infilemc3.Get(stree),infilemc4.Get(stree),infilemc5.Get(stree)]
+'''
+
+
+
+
+

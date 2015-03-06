@@ -1,0 +1,165 @@
+#ifndef __EndpointMCScan_h_
+#define __EndpointMCScan_h_
+#include <iostream>
+#include "TTree.h"
+#include "TLorentzVector.h"
+#include "TH1.h"
+#include "TH2.h"
+#include "include/Format.h"
+
+class EndpointMCScan {
+
+
+  private:
+	TString _sname;
+	TTree* _tree;
+
+	TH1F* _kdata;
+	TH2F* _kmcVsBias;
+	TH1F* _chi2;
+
+//	bool _useBoth;	
+	double _minPt;
+	_OutType getBiasTrack(_OutType trk,double bias);
+
+  public:
+//	EndpointMCScan();
+	EndpointMCScan(TString const sname= "derp",int const _nkbins=100, double const _minpt=40, int const _nbiasBins=400, double const _biasRange = 5);
+	void fillData(TTree* tree, double const flatmcbias=0);
+	void fillMC(TTree* tree);
+	void runChisquareFit();
+	void reset();
+
+	TH1F* getHistData() { return _kdata;}
+	TH2F* getHistMCScan() { return _kmcVsBias;}
+	TH1F* getChi2() { return _chi2;}
+//	void setUseBoth(bool const b) { _useBoth = b;}	
+	
+};
+//
+//
+//
+/*
+EndpointMCScan::EndpointMCScan() {
+
+	_sname = "endpointMCScan";
+
+	int nkbins 	= 100;
+	double minpt = 40;
+	minpt = 100;
+	double nbiasBins = 400;
+	double biasRange= 5e-3;
+
+	_kdata 		= new TH1F(TString::Format("%s__kdata",_sname.Data()),";#kappa",nkbins,-1./minpt,1./minpt);
+	_kmcVsBias 	= new TH2F(TString::Format("%s__kmcVsBias",_sname.Data()),";#kappa",nbiasBins,-biasRange,biasRange,	nkbins,-1./minpt,1./minpt);
+	_chi2		= new TH1F(TString::Format("%s_chi2",_sname.Data()),";#kappa;#chi^{2}",nbiasBins,-biasRange*1e3,biasRange*1e3);
+
+}
+*/
+
+EndpointMCScan::EndpointMCScan(TString const sname,int const _nkbins, double const _minpt, int const _nbiasBins, double const _biasRange){
+
+	_sname 	= sname;
+	_tree 	= 0;
+	_minPt			= _minpt;
+
+	int nkbins 		 = _nkbins;
+	double minpt 	 = _minpt;
+	int nbiasBins 	 = _nbiasBins;
+	double biasRange = _biasRange*1e-3;
+
+//	_kpos 	= new TH1F(TString::Format("%s_kpos",_sname.Data()),";q/p_{T}",nkbins,0,1./minpt);
+//	_kneg 	= new TH1F(TString::Format("%s_kneg",_sname.Data()),";q/p_{T}",nkbins,0,1./minpt);
+	_kdata 		= new TH1F(TString::Format("%s__kdata",_sname.Data()),";#kappa",nkbins,-1./_minPt,1./_minPt);
+	_kmcVsBias 	= new TH2F(TString::Format("%s__kmcVsBias",_sname.Data()),";#kappa",nbiasBins,-biasRange,biasRange,	nkbins,-1./_minPt,1./_minPt);
+	_chi2		= new TH1F(TString::Format("%s_chi2",_sname.Data()),";#kappa;#chi^{2}",nbiasBins,-biasRange*1e3,biasRange*1e3);
+
+	_useBoth = false;	
+
+}
+
+//
+// fill the data nTuple
+//
+void EndpointMCScan::fillData(TTree* tree, double const flatmcbias) {
+
+	int numEntries = tree->GetEntries();
+
+	_OutType trk1, trk2;
+
+	tree->SetBranchAddress("trk1",&trk1);
+
+	for (int jEntry = 0; jEntry < numEntries; ++jEntry) {	
+		tree->GetEntry(jEntry);
+
+		trk1 =  getBiasTrack(trk1,flatmcbias);
+		trk2 =  getBiasTrack(trk2,flatmcbias);
+		_kdata->Fill(trk1.k);
+//		if (_useBoth) _kdata->Fill(trk2.k);
+	}
+}
+//
+// fill the mc nTuple
+//
+void EndpointMCScan::fillMC(TTree* tree) {
+
+	int numEntries = tree->GetEntries();
+
+	_OutType trk1, trk2;
+
+	tree->SetBranchAddress("trk1",&trk1);
+	tree->SetBranchAddress("trk2",&trk2);
+
+	int numBinsk = _kmcVsBias->GetNbinsX();
+	for (int jEntry = 0; jEntry < numEntries; ++jEntry) {	
+		tree->GetEntry(jEntry);
+	
+		for (int ibias = 1; ibias <= numBinsk; ++ibias) {
+			double kbias =_kmcVsBias->GetXaxis()->GetBinCenter(ibias); 
+
+			_OutType trk1a =  getBiasTrack(trk1,kbias);
+			_OutType trk2a =  getBiasTrack(trk2,kbias);
+			_kmcVsBias->Fill(kbias,trk1a.k);
+//			if (_useBoth) _kmcVsBias->Fill(kbias,trk2a.k);
+
+		}
+
+
+	}
+
+}
+//
+//
+//
+void EndpointMCScan::runChisquareFit(){
+
+	int numBinsk = _kmcVsBias->GetNbinsX();
+
+
+	for (int ibin = 1; ibin <= numBinsk; ++ibin) {
+		TH1F* hmc = (TH1F*)_kmcVsBias->ProjectionY("pymc",ibin,ibin);
+	
+		float chi2 = _kdata->Chi2Test(hmc,"UW,CHI2"); 
+		_chi2->SetBinContent(ibin,chi2);
+
+	}
+
+}
+
+//
+//
+//
+_OutType EndpointMCScan::getBiasTrack(_OutType trk,double bias){
+	trk.k = trk.k-bias;
+	return trk;
+}
+//
+//
+//
+void EndpointMCScan::reset() {
+	_kdata 		->Reset();	
+	_kmcVsBias 	->Reset();
+	_chi2		->Reset();
+	
+}
+#endif
